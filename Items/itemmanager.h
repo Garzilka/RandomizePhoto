@@ -13,6 +13,7 @@ class QItemManager : public QAbstractListModel
     Q_PROPERTY(QString OutPath READ getOutPath WRITE setOutPath NOTIFY OutPathChanged)
     Q_PROPERTY(int targeNumImg READ getTargeNumImg WRITE setTargeNumImg NOTIFY TargeNumImgChanged)
     Q_PROPERTY(int startNumImg READ getstartNumImg WRITE setstartNumImg NOTIFY startNumImgChanged)
+    Q_PROPERTY(float progressValue READ getprogressValue WRITE setprogressValue NOTIFY progressValueChanged)
 
 public:
     enum ItemRoles {
@@ -87,21 +88,28 @@ public:
     }
 
     Q_INVOKABLE void startprocess();
-
-    QStringList GetPhotoV1();
-    QStringList GetPhotoV2();
-    bool isPositionSafe(const QStringList& list, const QString& item, int index, int minDistance);
-    QStringList GetPhotoV3();
     QStringList GetSourcePhoto();
 
-    void RunCopyFile(QStringList& ListPhoto);
+    float getprogressValue() const { return m_progressValue; }
+
+    void setprogressValue(float value)
+    {
+        if (!qFuzzyCompare(m_progressValue, value))
+        {
+            m_progressValue = value;
+            emit progressValueChanged();
+        }
+    }
 signals:
     void AllNumImgChanged();
     void OutPathChanged();
     void TargeNumImgChanged();
     void startNumImgChanged();
+    void progressValueChanged();
+
 private slots:
     void AutoUpdateNum() {UpdateNum();};
+    void UpdateThreadStatus(float Rand, float Write);
 
 private:
     QList<QItem*> m_itemList;
@@ -109,6 +117,7 @@ private:
     int AllNumImg = 0;
     int m_TargeNumImg = 100;
     int m_StartNumImg = 1;
+    float m_progressValue = 0.0;
     bool m_AllNumImg;
     void UpdateNum();
     void setNumImg(int newNum)

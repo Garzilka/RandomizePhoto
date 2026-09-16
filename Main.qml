@@ -557,6 +557,43 @@ Window {
                 }
             }
         }
+        ProgressBar
+        {
+            id: copyProgressBar
+            Layout.fillWidth: true
+            height: 6
+
+            value: ItemManager.progressValue
+
+            // ProgressBar будет виден только во время процесса копирования
+            // (когда значение больше 0 и меньше 1)
+            visible: value > 0 && value < 1
+
+            // Кастомная стилизация под нашу темную тему
+            background: Rectangle {
+                implicitWidth: 200
+                implicitHeight: 6
+                color: "#1e1e24" // Цвет дорожки (фон)
+                radius: 3
+            }
+
+            contentItem: Item {
+                implicitWidth: 200
+                implicitHeight: 6
+
+                Rectangle {
+                    width: copyProgressBar.visualPosition * parent.width
+                    height: parent.height
+                    radius: 3
+                    color: colorAccent // Наш акцентный фиолетовый/неоновый цвет заполнения
+
+                    // Плавная анимация движения полосы
+                    Behavior on width {
+                        NumberAnimation { duration: 150; easing.type: Easing.OutQuad }
+                    }
+                }
+            }
+        }
 
         RowLayout
         {
@@ -584,6 +621,8 @@ Window {
             {
                 text: "Начать"
 
+                enabled: ItemManager.progressValue === 0 || ItemManager.progressValue === 1
+                opacity: enabled ? 1.0 : 0.5
                 onClicked:
                 {
                     ItemManager.startprocess();

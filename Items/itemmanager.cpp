@@ -5,6 +5,8 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QDebug>
+#include <QThread>
+#include "Threads/fileworker.h"
 #include "Data/HashTable/tmap.h"
 
 
@@ -65,155 +67,6 @@ void QItemManager::UpdateNum()
     setNumImg(NewNum);
 }
 
-QStringList QItemManager::GetPhotoV1()
-{
-    QStringList sourceList;
-
-    for(QItem* Item : m_itemList)
-    {
-        if(!Item->getenable()) continue;
-
-        sourceList.append(Item->getPaths());
-    }
-
-    if (sourceList.isEmpty() || m_TargeNumImg <= 0) return sourceList;
-
-
-    QStringList result;
-
-    // Генератор случайных чисел
-    std::random_device rd;
-    std::mt19937 g(rd());
-
-    // Перемешиваем первый слой, чтобы исходный порядок не влиял на результат
-    result = sourceList;
-    std::shuffle(result.begin(), result.end(), g);
-
-    // Если запрошено меньше или ровно столько, сколько есть, просто обрезаем
-    if (result.size() >= m_TargeNumImg)
-    {
-        while (result.size() > m_TargeNumImg)
-        {
-            result.removeLast();
-        }
-        return result;
-    }
-
-    // 2. Добираем оставшиеся элементы
-    int itemsNeeded = m_TargeNumImg - result.size();
-
-    // Создаем копию исходного списка для создания "пула дубликатов"
-    QStringList duplicatePool = sourceList;
-
-    // Перемешиваем пул, чтобы выборка дубликатов была случайной
-    std::shuffle(duplicatePool.begin(), duplicatePool.end(), g);
-
-    // Добавляем ровно столько дубликатов, сколько не хватает
-    for (int i = 0; i < itemsNeeded; ++i)
-    {
-        // Если вдруг targetCount значительно больше (например, надо из 30 сделать 100),
-        // и пул закончился, мы просто перемешиваем его заново и берем сначала
-        if (i >= duplicatePool.size())
-        {
-            std::shuffle(duplicatePool.begin(), duplicatePool.end(), g);
-        }
-
-        // Добавляем элемент из перемешанного пула.
-        // За счет взятия по индексу [i % size] ни один элемент не повторится трижды,
-        // пока остальные не повторились хотя бы дважды.
-        result.append(duplicatePool[i % duplicatePool.size()]);
-    }
-
-    // 3. Финальный штрих: перемешиваем весь итоговый список,
-    // чтобы дубликаты не шли друг за другом в конце списка, а равномерно распределились.
-    std::shuffle(result.begin(), result.end(), g);
-
-    return result;
-}
-
-bool QItemManager::isPositionSafe(const QStringList &list, const QString &item, int index, int minDistance)
-{
-    int start = std::max(0, index - minDistance);
-
-    for (int i = start; i < index; ++i)
-    {
-        if (list[i] == item)
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-QStringList QItemManager::GetPhotoV2()
-{
-    QStringList sourceList = GetSourcePhoto();
-    int minDistance = sourceList.size() / 4;
-
-    std::random_device rd;
-    std::mt19937 g(rd());
-
-    QStringList rawList = sourceList;
-    std::shuffle(rawList.begin(), rawList.end(), g);
-
-    if (rawList.size() < m_TargeNumImg)
-    {
-        int itemsNeeded = m_TargeNumImg - rawList.size();
-        QStringList duplicatePool = sourceList;
-        std::shuffle(duplicatePool.begin(), duplicatePool.end(), g);
-
-        for (int i = 0; i < itemsNeeded; ++i)
-        {
-            if (i >= duplicatePool.size())
-            {
-                std::shuffle(duplicatePool.size() ? duplicatePool.begin() : duplicatePool.begin(), duplicatePool.end(), g);
-            }
-            rawList.append(duplicatePool[i % duplicatePool.size()]);
-        }
-    }
-    else if (rawList.size() > m_TargeNumImg)
-    {
-        while (rawList.size() > m_TargeNumImg) rawList.removeLast();
-        return rawList;
-    }
-
-    // Финально перемешиваем перед распределением дистанции
-    std::shuffle(rawList.begin(), rawList.end(), g);
-
-    // 2. УМНОЕ РАСПРЕДЕЛЕНИЕ: Раздвигаем дубликаты
-    QStringList result;
-    result.reserve(m_TargeNumImg);
-
-    // Пока в исходном сыром списке есть элементы
-    while (!rawList.isEmpty())
-    {
-        bool placed = false;
-
-        // Ищем первый элемент, который можно безопасно вставить на текущую позицию
-        for (int i = 0; i < rawList.size(); ++i)
-        {
-            QString currentItem = rawList[i];
-
-            if (isPositionSafe(result, currentItem, result.size(), minDistance))
-            {
-                result.append(currentItem);
-                rawList.removeAt(i);
-                placed = true;
-                break;
-            }
-        }
-
-        // КРИТИЧЕСКИЙ СЛУЧАЙ: Если мы дошли до конца списка, и ни один оставшийся элемент
-        // не удовлетворяет условию дистанции (такое бывает в самом конце, когда остались одни дубликаты)
-        if (!placed) {
-            // Принудительно вставляем первый попавшийся элемент из остатка,
-            // так как математически идеальный зазор уже невозможен
-            result.append(rawList.takeFirst());
-        }
-    }
-
-    return result;
-}
 
 
 QStringList QItemManager::GetSourcePhoto()
@@ -226,12 +79,6 @@ QStringList QItemManager::GetSourcePhoto()
 
         Result.append(Item->getPaths());
     }
-    return Result;
-}
-
-QStringList QItemManager::GetPhotoV3()
-{
-    QStringList Result;
     return Result;
 }
 
@@ -251,54 +98,40 @@ void QItemManager::startprocess()
         return;
     }
 
-    QStringList Result = GetPhotoV2();
-    RunCopyFile(Result);
+    QStringList allSourcePhotos = GetSourcePhoto();
+
+
+    // 2. Создаем поток и рабочего
+    QThread* thread = new QThread();
+    QFileWorker* worker = new QFileWorker(allSourcePhotos, m_OutPath, m_TargeNumImg, m_StartNumImg);
+
+    // Перемещаем объект рабочего в созданный поток.
+    // ТЕПЕРЬ ВСЕ СЛОТЫ WORKER БУДУТ ВЫПОЛНЯТЬСЯ В THREAD!
+    worker->moveToThread(thread);
+
+    // 3. СВЯЗЫВАЕМ СИГНАЛЫ И СЛОТЫ (Самая важная часть!)
+
+    // Как только поток запустится — рабочий начнет копирование
+    connect(thread, &QThread::started, worker, &QFileWorker::process);
+
+    connect(worker, &QFileWorker::finished, thread, &QThread::quit);
+
+    connect(worker, &QFileWorker::finished, worker, &QObject::deleteLater);
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+
+    connect(worker, &QFileWorker::progressChanged, this, &QItemManager::UpdateThreadStatus);
+
+    thread->start();
+
+    qDebug() << "Главный поток свободен! Копирование пошло в фоне.";
 
 }
-
-void QItemManager::RunCopyFile(QStringList &ListPhoto)
+void QItemManager::UpdateThreadStatus(float Rand, float Write)
 {
-    // Проверяем, существует ли целевая папка, если нет — создаем
-    QDir outDir(m_OutPath);
-    if (!outDir.exists())
-    {
-        outDir.mkpath(".");
-    }
-
-    // 4. Цикл копирования и переименования
-    int counter = m_StartNumImg;
-    for (const QString& srcPath : ListPhoto)
-    {
-        QFileInfo fileInfo(srcPath);
-        QString suffix = fileInfo.suffix(); // Сохраняем расширение (jpg, png etc.)
-
-        // Формируем новое имя по шаблону: IMG_1.jpg, IMG_2.jpg...
-        QString newFileName = QString("IMG_%1.%2")
-                                  .arg(counter, 4, 10, QChar('0'))
-                                  .arg(suffix);
-        QString destPath = outDir.absoluteFilePath(newFileName);
-
-        // Копируем файл
-        // Если вдруг файл с таким именем уже существует (например, от прошлого запуска),
-        // QFile::copy вернет false, поэтому лучше сначала удалить старый файл, если он там есть
-        if (QFile::exists(destPath))
-        {
-            QFile::remove(destPath);
-        }
-
-        if (QFile::copy(srcPath, destPath))
-        {
-            qDebug() << "Успешно скопировано:" << srcPath << "->" << newFileName;
-        } else
-        {
-            qWarning() << "Не удалось скопировать файл:" << srcPath;
-        }
-
-        counter++;
-    }
-
-    qDebug() << "Обработка завершена! Скопировано файлов:" << (counter - 1);
+    setprogressValue((Rand + Write) / 2.f);
+    qDebug() << "progressValue:" << (m_progressValue);
 }
+
 void QItemManager::removeItem(int index)
 {
     if(index < 0 || index > m_itemList.size()) return;
