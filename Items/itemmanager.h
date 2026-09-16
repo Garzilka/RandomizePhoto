@@ -88,7 +88,13 @@ public:
 
     Q_INVOKABLE void startprocess();
 
-    QStringList GetPhoto();
+    QStringList GetPhotoV1();
+    QStringList GetPhotoV2();
+    bool isPositionSafe(const QStringList& list, const QString& item, int index, int minDistance);
+    QStringList GetPhotoV3();
+    QStringList GetSourcePhoto();
+
+    void RunCopyFile(QStringList& ListPhoto);
 signals:
     void AllNumImgChanged();
     void OutPathChanged();

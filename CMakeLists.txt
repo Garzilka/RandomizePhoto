@@ -24,6 +24,7 @@ qt_add_qml_module(appNomad
         SOURCES PathTool/pathtool.h PathTool/pathtool.cpp
         SOURCES Items/item.h Items/item.cpp
         SOURCES Items/itemmanager.h Items/itemmanager.cpp
+        SOURCES Data/HashTable/tmap.h Data/HashTable/tmap.cpp
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.

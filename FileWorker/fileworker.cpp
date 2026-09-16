@@ -2,7 +2,7 @@
 
 FileWorker::FileWorker(const QString& folderPath)
 {
-    filters << "*.jpg" << "*.jpeg" << "*.png" << "*.webp";
+    filters << "*.jpg" << "*.jpeg" << "*.png" << "*.webp"<< "*.HEIC";
 
     Directory = new QDir(folderPath);
 

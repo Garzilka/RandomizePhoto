@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QDebug>
+#include "Data/HashTable/tmap.h"
 
 
 QItemManager::QItemManager(QObject *parent) : QAbstractListModel(parent)
@@ -63,18 +64,8 @@ void QItemManager::UpdateNum()
     }
     setNumImg(NewNum);
 }
-/*
-void QItemManager::removeItem(const QString& path)
-{
-    int Idx = GetItemId(path);
-    if(Idx < 0) return;
 
-    beginRemoveRows(QModelIndex(), Idx, Idx);
-    ItemList[Idx]->deleteLater();
-    ItemList.removeAt(Idx);
-    endRemoveRows();
-}*/
-QStringList QItemManager::GetPhoto()
+QStringList QItemManager::GetPhotoV1()
 {
     QStringList sourceList;
 
@@ -140,6 +131,109 @@ QStringList QItemManager::GetPhoto()
     return result;
 }
 
+bool QItemManager::isPositionSafe(const QStringList &list, const QString &item, int index, int minDistance)
+{
+    int start = std::max(0, index - minDistance);
+
+    for (int i = start; i < index; ++i)
+    {
+        if (list[i] == item)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+QStringList QItemManager::GetPhotoV2()
+{
+    QStringList sourceList = GetSourcePhoto();
+    int minDistance = sourceList.size() / 4;
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+
+    QStringList rawList = sourceList;
+    std::shuffle(rawList.begin(), rawList.end(), g);
+
+    if (rawList.size() < m_TargeNumImg)
+    {
+        int itemsNeeded = m_TargeNumImg - rawList.size();
+        QStringList duplicatePool = sourceList;
+        std::shuffle(duplicatePool.begin(), duplicatePool.end(), g);
+
+        for (int i = 0; i < itemsNeeded; ++i)
+        {
+            if (i >= duplicatePool.size())
+            {
+                std::shuffle(duplicatePool.size() ? duplicatePool.begin() : duplicatePool.begin(), duplicatePool.end(), g);
+            }
+            rawList.append(duplicatePool[i % duplicatePool.size()]);
+        }
+    }
+    else if (rawList.size() > m_TargeNumImg)
+    {
+        while (rawList.size() > m_TargeNumImg) rawList.removeLast();
+        return rawList;
+    }
+
+    // Финально перемешиваем перед распределением дистанции
+    std::shuffle(rawList.begin(), rawList.end(), g);
+
+    // 2. УМНОЕ РАСПРЕДЕЛЕНИЕ: Раздвигаем дубликаты
+    QStringList result;
+    result.reserve(m_TargeNumImg);
+
+    // Пока в исходном сыром списке есть элементы
+    while (!rawList.isEmpty())
+    {
+        bool placed = false;
+
+        // Ищем первый элемент, который можно безопасно вставить на текущую позицию
+        for (int i = 0; i < rawList.size(); ++i)
+        {
+            QString currentItem = rawList[i];
+
+            if (isPositionSafe(result, currentItem, result.size(), minDistance))
+            {
+                result.append(currentItem);
+                rawList.removeAt(i);
+                placed = true;
+                break;
+            }
+        }
+
+        // КРИТИЧЕСКИЙ СЛУЧАЙ: Если мы дошли до конца списка, и ни один оставшийся элемент
+        // не удовлетворяет условию дистанции (такое бывает в самом конце, когда остались одни дубликаты)
+        if (!placed) {
+            // Принудительно вставляем первый попавшийся элемент из остатка,
+            // так как математически идеальный зазор уже невозможен
+            result.append(rawList.takeFirst());
+        }
+    }
+
+    return result;
+}
+
+
+QStringList QItemManager::GetSourcePhoto()
+{
+    QStringList Result;
+
+    for(QItem* Item : m_itemList)
+    {
+        if(!Item->getenable()) continue;
+
+        Result.append(Item->getPaths());
+    }
+    return Result;
+}
+
+QStringList QItemManager::GetPhotoV3()
+{
+    QStringList Result;
+    return Result;
+}
 
 void QItemManager::startprocess()
 {
@@ -150,6 +244,20 @@ void QItemManager::startprocess()
         return;
     }
 
+    // 2. Проверяем, target amount != 0
+    if (m_TargeNumImg == 0)
+    {
+        qWarning() << "Ошибка: финальное количество равно нулю!";
+        return;
+    }
+
+    QStringList Result = GetPhotoV2();
+    RunCopyFile(Result);
+
+}
+
+void QItemManager::RunCopyFile(QStringList &ListPhoto)
+{
     // Проверяем, существует ли целевая папка, если нет — создаем
     QDir outDir(m_OutPath);
     if (!outDir.exists())
@@ -157,12 +265,9 @@ void QItemManager::startprocess()
         outDir.mkpath(".");
     }
 
-    // 3. Вызываем функцию балансировки файлов, чтобы получить ровно targetCount путей
-    QStringList balancedList = GetPhoto();
-
     // 4. Цикл копирования и переименования
     int counter = m_StartNumImg;
-    for (const QString& srcPath : balancedList)
+    for (const QString& srcPath : ListPhoto)
     {
         QFileInfo fileInfo(srcPath);
         QString suffix = fileInfo.suffix(); // Сохраняем расширение (jpg, png etc.)
